@@ -1,20 +1,67 @@
-use std::collections::HashMap;
+use std::fs::{self, File, OpenOptions};
+use std::io::{BufWriter, Write};
+use std::path::PathBuf;
 
 pub struct KvDb {
-    db: HashMap<String, String>,
+    // directory that contains data
+    data_dir: PathBuf,
+    // writer of the current segment
+    writer: BufWriter<File>,
 }
 
 impl KvDb {
-    pub fn new() -> Self {
-        Self { db: HashMap::new() }
+    /// Creates a new KvDB instance.
+    pub fn new(data_dir: impl Into<PathBuf>) -> Self {
+        // create the data directory if it doesn't exist
+        let data_dir = data_dir.into();
+        let _ = fs::create_dir_all(&data_dir).unwrap();
+
+        // TODO: find the latest segment and open it for writing
+        let current_segment = data_dir.join(format!("{}.log", "segment-1"));
+
+        let current_segment_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(current_segment)
+            .unwrap();
+
+        let writer = BufWriter::new(current_segment_file);
+
+        Self { data_dir, writer }
     }
 
+    /// Set a key-value pair in the database.
     pub fn set(&mut self, key: String, value: String) {
-        self.db.insert(key, value);
+        let set = Command::set(key, value);
+
+        // TODO: serialize set and write it to the current segment
+
+        self.writer
+            .write_all(format!("{} {}\n", key, value).as_bytes())
+            .unwrap();
     }
 
+    /// Get a value from the database.
     pub fn get(&self, key: String) -> Option<String> {
-        self.db.get(&key).map(|s| s.to_string())
+        unimplemented!()
+    }
+}
+
+// Command represents a command that can be send to the KvDb.
+enum Command {
+    Set { key: String, value: String },
+    Get { key: String },
+}
+
+impl Command {
+    // Returns a new Set command.
+    pub fn set(key: String, value: String) -> Self {
+        Command::Set { key, value }
+    }
+    // Returns a new Get command.
+    pub fn get(key: String) -> Self {
+        Command::Get { key }
     }
 }
 
