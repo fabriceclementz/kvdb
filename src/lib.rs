@@ -2,6 +2,9 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{BufWriter, Write};
 use std::path::PathBuf;
 
+use rmp_serde::Serializer;
+use serde::Serialize;
+
 pub struct KvDb {
     // directory that contains data
     data_dir: PathBuf,
@@ -34,12 +37,8 @@ impl KvDb {
     /// Set a key-value pair in the database.
     pub fn set(&mut self, key: String, value: String) {
         let set = Command::set(key, value);
-
-        // TODO: serialize set and write it to the current segment
-
-        self.writer
-            .write_all(format!("{} {}\n", key, value).as_bytes())
-            .unwrap();
+        let message = rmp_serde::to_vec(&set).unwrap();
+        let _ = rmp_serde::encode::write(&mut self.writer, &message).unwrap();
     }
 
     /// Get a value from the database.
@@ -49,6 +48,7 @@ impl KvDb {
 }
 
 // Command represents a command that can be send to the KvDb.
+#[derive(Debug, Serialize)]
 enum Command {
     Set { key: String, value: String },
     Get { key: String },
