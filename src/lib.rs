@@ -1,15 +1,24 @@
-use std::fs::{self, File, OpenOptions};
-use std::io::{BufWriter, Write};
+mod segment;
+
+use std::collections::BTreeMap;
+use std::fs::{self};
+use std::io::Seek;
 use std::path::PathBuf;
 
-use rmp_serde::Serializer;
-use serde::Serialize;
+use rmp_serde::{Deserializer, Serializer};
+use segment::{get_segment_path, get_sorted_segments_num, Segment};
+use serde::{Deserialize, Serialize};
 
+#[derive(Debug)]
 pub struct KvDb {
     // directory that contains data
     data_dir: PathBuf,
-    // writer of the current segment
-    writer: BufWriter<File>,
+    // Active segment to write in
+    active_segment: Segment,
+    // All the segments
+    segments: Vec<Segment>,
+    // Index that stores position of a key in a segment
+    index: BTreeMap<String, CommandPos>,
 }
 
 impl KvDb {
@@ -19,26 +28,40 @@ impl KvDb {
         let data_dir = data_dir.into();
         let _ = fs::create_dir_all(&data_dir).unwrap();
 
-        // TODO: find the latest segment and open it for writing
-        let current_segment = data_dir.join(format!("{}.log", "segment-1"));
+        let mut index = BTreeMap::new();
 
-        let current_segment_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create(true)
-            .open(current_segment)
-            .unwrap();
+        let sorted_list = get_sorted_segments_num(&data_dir);
 
-        let writer = BufWriter::new(current_segment_file);
+        let active_segment_num = sorted_list.last().unwrap();
+        let mut segments = vec![];
+        for num in &sorted_list {
+            if num != active_segment_num {
+                let segment = Segment::open(&get_segment_path(&data_dir, num));
+                load_segment_in_index(&segment, &index);
+                segments.push(segment);
+            }
+        }
 
-        Self { data_dir, writer }
+        let active_segment = Segment::open(&get_segment_path(&data_dir, active_segment_num));
+        load_segment_in_index(&active_segment, &index);
+
+        Self {
+            data_dir,
+            active_segment,
+            segments: segments,
+            index,
+        }
     }
 
     /// Set a key-value pair in the database.
     pub fn set(&mut self, key: String, value: String) {
-        let set = Command::set(key, value);
+        let set = Command::set(key.clone(), value);
         let message = rmp_serde::to_vec(&set).unwrap();
-        let _ = rmp_serde::encode::write(&mut self.writer, &message).unwrap();
+        let _ = rmp_serde::encode::write(&mut self.active_segment.writer, &message).unwrap();
+
+        // TODO: get the len of the current file and update the index
+        // let pos = message.len();
+        // let _ = self.index.insert(key, pos);
     }
 
     /// Get a value from the database.
@@ -48,7 +71,7 @@ impl KvDb {
 }
 
 // Command represents a command that can be send to the KvDb.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 enum Command {
     Set { key: String, value: String },
     Get { key: String },
@@ -65,16 +88,28 @@ impl Command {
     }
 }
 
+#[derive(Debug)]
+struct CommandPos {
+    segment_num: u64,
+    pos: u64,
+    len: u64,
+}
+
+fn load_segment_in_index(segment: &Segment, index: &BTreeMap<String, CommandPos>) {
+    // deserialize a segment and fill the index
+    unimplemented!()
+}
+
 #[cfg(test)]
 mod test {
-    fn get_db() -> super::KvDb {
-        super::KvDb::new()
-    }
+    // fn get_db() -> super::KvDb {
+    //     super::KvDb::new()
+    // }
 
-    #[test]
-    fn set_and_get() {
-        let mut db = get_db();
-        db.set("key".into(), "value 1".into());
-        assert_eq!(db.get("key".into()), Some("value 1".into()));
-    }
+    // #[test]
+    // fn set_and_get() {
+    //     let mut db = get_db();
+    //     db.set("key".into(), "value 1".into());
+    //     assert_eq!(db.get("key".into()), Some("value 1".into()));
+    // }
 }
